@@ -6,8 +6,11 @@ import (
 )
 
 type CPU struct {
-	registers *Registers
-	cpsr *CPSR
+	registers Registers
+	cpsr CPSR
+	instructionState InstructionState
+	mode Mode
+	// memory
 }
 
 func cpu() {
