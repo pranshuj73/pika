@@ -108,9 +108,9 @@ Value receiver = reading a notice pinned to the board (you get a photocopy; writ
 <ol>
   <li>Add the flag constants and the four methods. Gotcha you may have already met: type the flags as <code>CPSR</code>, not <code>uint32</code> — Go forbids mixing distinct named types in <code>*c |= f</code> without a conversion, and typed constants make that restriction work <em>for</em> you.</li>
   <li>Write <code>func (c CPSR) IsThumb() bool</code> using <code>Has</code> — one line.</li>
-  <li>Sanity-check in <code>cmd/gba/main.go</code>: create <code>var c cpu.CPSR</code>, call <code>c.Set(flagZ)</code> and <code>c.Set(flagT)</code>, then print with <code>fmt.Printf("%032b\\n", c)</code> and <code>c.Mode()</code>. Expected: a 32-bit string with 1s at positions 30 and 5 only — and mode <code>0x00</code>, because the mode bits start at zero until you set them. Then also <code>c.Set(0x10)</code> and watch <code>Mode()</code> become <code>0x10</code> (User). That experiment cements "mode = low 5 bits".</li>
+  <li>Sanity-check in <code>cmd/gba/main.go</code>: create <code>var c cpu.CPSR</code>, call <code>c.Set(flagZ)</code> and <code>c.Set(flagT)</code>, then print with <code>fmt.Printf("%032b\n", c)</code> and <code>c.Mode()</code>. Expected: a 32-bit string with 1s at positions 30 and 5 only — and mode <code>0x00</code>, because the mode bits start at zero until you set them. Then also <code>c.Set(0x10)</code> and watch <code>Mode()</code> become <code>0x10</code> (User). That experiment cements "mode = low 5 bits".</li>
 </ol>
-<p><code>go run ./cmd/gba</code> — watching the exact bits you asked for light up is the dopamine hit. If <code>%032b</code> confuses you, that's "print as binary, pad to 32 digits".</p>
+<p><code>go run ./cmd/gba</code> — watching the exact bits you asked for light up is the dopamine hit. In the Go source, the format must be <code>\n</code> (one backslash) — if your terminal prints a literal <code>\n</code>, you've got <code>\\n</code> (an escaped backslash) instead.</p>
 
 <h2>5. Check yourself</h2>
 <p>Retrieval, not review — answer from memory before peeking. Getting some wrong is the point: effortful recall is what builds long-term retention.</p>
