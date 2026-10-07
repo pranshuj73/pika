@@ -7,7 +7,6 @@ const (
 	THUMB
 )
 
-
 type Mode uint8
 
 const (
@@ -19,4 +18,3 @@ const (
 	Undefined
 	System
 )
-
