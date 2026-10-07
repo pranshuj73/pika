@@ -3,6 +3,8 @@ package cpu
 
 import (
 	"fmt"
+
+	"github.com/pranshuj73/pika.git/internal/memory"
 )
 
 type CPU struct {
@@ -10,7 +12,7 @@ type CPU struct {
 	cpsr CPSR
 	instructionState InstructionState
 	mode Mode
-	// memory
+	memory *memory.Memory
 }
 
 func cpu() {
