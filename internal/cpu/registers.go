@@ -29,3 +29,7 @@ func (c *CPSR) Clear(f CPSR) {
 func (c *CPSR) Mode() uint8 {
 	return uint8(*c & modeMosk)
 }
+
+func (c *CPSR) IsThumb() bool {
+	return c.Has(flagT)
+}

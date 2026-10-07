@@ -1,12 +1,5 @@
 package cpu
 
-type InstructionState uint8
-
-const (
-	ARM InstructionState = iota
-	THUMB
-)
-
 type Mode uint8
 
 const (
@@ -18,3 +11,5 @@ const (
 	Undefined
 	System
 )
+
+

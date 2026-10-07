@@ -104,11 +104,11 @@ Value receiver = reading a notice pinned to the board (you get a photocopy; writ
 </div>
 
 <h2>4. Your win: implement it in pika</h2>
-<p>Replace <code>type CPSR uint32</code> with the real thing in <code>internal/cpu/state.go</code>:</p>
+<p>Grow what's already in <code>internal/cpu/registers.go</code> — that's where your <code>type CPSR uint32</code> lives, and it's the right home for this (register types stay together; <code>state.go</code> keeps your ARM/THUMB and mode enums):</p>
 <ol>
-  <li>Paste the flag constants and the four methods above.</li>
+  <li>Add the flag constants and the four methods. Gotcha you may have already met: type the flags as <code>CPSR</code>, not <code>uint32</code> — Go forbids mixing distinct named types in <code>*c |= f</code> without a conversion, and typed constants make that restriction work <em>for</em> you.</li>
   <li>Write <code>func (c CPSR) IsThumb() bool</code> using <code>Has</code> — one line.</li>
-  <li>Sanity-check in <code>cmd/gba/main.go</code>: create <code>var c cpu.CPSR</code>, call <code>c.Set(flagZ)</code> and <code>c.Set(flagT)</code>, then print with <code>fmt.Printf("%032b\\n", c)</code> and <code>c.Mode()</code>. Expected output: a 32-bit string with 1s at positions 30 and 5 only, and mode <code>0x10</code>… wait, 0x00 actually — the mode bits start at zero until you set them. See what happens when you also <code>c.Set(0x10)</code>. That small experiment cements "mode = low 5 bits".</li>
+  <li>Sanity-check in <code>cmd/gba/main.go</code>: create <code>var c cpu.CPSR</code>, call <code>c.Set(flagZ)</code> and <code>c.Set(flagT)</code>, then print with <code>fmt.Printf("%032b\\n", c)</code> and <code>c.Mode()</code>. Expected: a 32-bit string with 1s at positions 30 and 5 only — and mode <code>0x00</code>, because the mode bits start at zero until you set them. Then also <code>c.Set(0x10)</code> and watch <code>Mode()</code> become <code>0x10</code> (User). That experiment cements "mode = low 5 bits".</li>
 </ol>
 <p><code>go run ./cmd/gba</code> — watching the exact bits you asked for light up is the dopamine hit. If <code>%032b</code> confuses you, that's "print as binary, pad to 32 digits".</p>
 
