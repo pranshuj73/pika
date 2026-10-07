@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reference — ARM7TDMI CPU State</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  .bits { display: flex; gap: 2px; font-family: var(--mono); font-size: 0.7rem; flex-wrap: wrap; }
+  .bit { border: 1px solid var(--rule); padding: 4px 2px; text-align: center; border-radius: 3px; background: #fff; min-width: 2.6rem; flex: 1; }
+  .bit b { display: block; font-size: 0.85rem; }
+  .bit.flag { background: #fdf0ee; border-color: var(--accent); }
+  .bit.ctrl { background: #eef3f8; }
+</style>
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Reference · Cheat sheet</div>
+  <h1>ARM7TDMI CPU State (GBA)</h1>
+</header>
+
+<p>Source of truth: <a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore">GBATEK — ARM CPU Core</a> and the <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI Technical Reference Manual</a>. Verify everything here against those.</p>
+
+<h2>Registers (r0–r15)</h2>
+<table>
+  <tr><th>Reg</th><th>Name</th><th>Role</th></tr>
+  <tr><td>r0–r12</td><td>—</td><td>General purpose</td></tr>
+  <tr><td>r13</td><td>SP</td><td>Stack pointer</td></tr>
+  <tr><td>r14</td><td>LR</td><td>Link register (return address; <code>BL</code> writes here)</td></tr>
+  <tr><td>r15</td><td>PC</td><td>Program counter. Reads are +8 (ARM) / +4 (THUMB) ahead due to pipelining</td></tr>
+</table>
+<p>Banked copies: FIQ has its own r8–r14; IRQ/SVC/ABT/UND have their own r13–r14. Switching mode swaps them in automatically.</p>
+
+<h2>CPSR — Current Program Status Register (32 bits)</h2>
+<div class="bits">
+  <div class="bit flag"><b>N</b>31</div><div class="bit flag"><b>Z</b>30</div>
+  <div class="bit flag"><b>C</b>29</div><div class="bit flag"><b>V</b>28</div>
+  <div class="bit"><b>Q</b>27</div><div class="bit"><b>…</b>26–8</div>
+  <div class="bit ctrl"><b>I</b>7</div><div class="bit ctrl"><b>F</b>6</div>
+  <div class="bit ctrl"><b>T</b>5</div><div class="bit ctrl"><b>M</b>4–0</div>
+</div>
+<table>
+  <tr><th>Field</th><th>Bit(s)</th><th>Meaning</th></tr>
+  <tr><td>N</td><td>31</td><td>Negative — bit 31 of the result</td></tr>
+  <tr><td>Z</td><td>30</td><td>Zero — result was 0</td></tr>
+  <tr><td>C</td><td>29</td><td>Carry — carry/borrow/shift-out bit</td></tr>
+  <tr><td>V</td><td>28</td><td>Overflow — signed overflow occurred</td></tr>
+  <tr><td>I / F</td><td>7 / 6</td><td>IRQ / FIQ disable</td></tr>
+  <tr><td>T</td><td>5</td><td>1 = THUMB state, 0 = ARM state</td></tr>
+  <tr><td>M</td><td>4–0</td><td>CPU mode (see below)</td></tr>
+</table>
+
+<h2>CPU modes (M[4:0])</h2>
+<table>
+  <tr><th>Mode</th><th>Value</th><th>When</th></tr>
+  <tr><td>User</td><td>0x10</td><td>Normal game code</td></tr>
+  <tr><td>FIQ</td><td>0x11</td><td>Fast interrupt</td></tr>
+  <tr><td>IRQ</td><td>0x12</td><td>Normal interrupt (games use this)</td></tr>
+  <tr><td>Supervisor (SVC)</td><td>0x13</td><td>Software interrupt (<code>SWI</code>) &amp; reset</td></tr>
+  <tr><td>Abort</td><td>0x17</td><td>Memory abort (rarely on GBA)</td></tr>
+  <tr><td>Undefined</td><td>0x1B</td><td>Undefined instruction</td></tr>
+  <tr><td>System</td><td>0x1F</td><td>User registers, privileged mode</td></tr>
+</table>
+
+<h2>Go bit-manipulation idioms used with the CPSR</h2>
+<pre><code>const (
+    flagN uint32 = 1 &lt;&lt; 31
+    flagZ uint32 = 1 &lt;&lt; 30
+    flagC uint32 = 1 &lt;&lt; 29
+    flagV uint32 = 1 &lt;&lt; 28
+    flagT uint32 = 1 &lt;&lt; 5
+    modeMask uint32 = 0x1F
+)
+
+c.Has(flagC)          // test:  c&amp;flag != 0
+c.Set(flagZ)          // set:   c |= flag
+c.Clear(flagT)        // clear: c &amp;^= flag
+Mode(c &amp; modeMask)    // extract low 5 bits</code></pre>
+
+<footer class="lesson-footer">
+  <span>pika reference · ARM7TDMI CPU state</span>
+  <span><a href="../lessons/0001-cpsr-and-bit-ops.html">Lesson 1: CPSR &amp; bit ops</a></span>
+</footer>
+</body>
+</html>

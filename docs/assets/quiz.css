@@ -1,0 +1,16 @@
+/* pika course — quiz styles */
+.quiz { margin: 1.2rem 0; padding: 1rem 1.2rem; border: 1px solid var(--rule); border-radius: 6px; background: #fff; }
+.quiz-q { font-family: var(--serif); margin: 0 0 0.8rem; }
+.quiz-opts { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.quiz-opts button {
+  font: 0.9rem var(--sans); padding: 0.45rem 0.9rem; border: 1px solid var(--rule);
+  border-radius: 5px; background: var(--paper); cursor: pointer; color: var(--ink);
+}
+.quiz-opts button:hover:not(:disabled) { border-color: var(--accent); }
+.quiz-opts button.correct { background: #e3efe4; border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.quiz-opts button.wrong { background: #f7e3e3; border-color: var(--bad); color: var(--bad); }
+.quiz-opts button:disabled { cursor: default; opacity: 0.9; }
+.quiz-fb { min-height: 1.4em; margin: 0.7rem 0 0; font-family: var(--sans); font-size: 0.9rem; }
+.quiz-progress { font-family: var(--sans); font-size: 0.75rem; color: var(--muted); margin: 0.6rem 0 0; text-align: right; }
+.quiz-score { font-family: var(--sans); font-weight: 600; }
+.quiz-restart { font: 0.85rem var(--sans); padding: 0.4rem 0.9rem; border: 1px solid var(--rule); border-radius: 5px; background: var(--paper); cursor: pointer; }

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 1 — CPSR: the CPU's status line, and Go bit ops</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Lesson 0001 · ~15 min</div>
+  <h1>CPSR: the CPU's status line — and Go bit ops that make it real</h1>
+</header>
+
+<div class="mission-tie">Your README literally says <em>"cpsr (wtf is cpsr?)"</em>. This lesson kills that TODO. It also teaches the Go idiom (<code>&amp;^=</code>, masks, typed constants) you'll use in every instruction you ever implement. One stone, both birds.</div>
+
+<h2>The idea in one paragraph</h2>
+<p>The ARM7TDMI (the GBA's CPU) has 16 registers, r0–r15 (<a href="../reference/arm7tdmi-cpu-state.html">cheat sheet</a>). Fifteen hold data. But the CPU also carries <em>status</em>: did the last result come out negative? zero? was there a carry? which mode am I in? ARM packs all of that into one extra 32-bit word called the <strong>CPSR — Current Program Status Register</strong> (<a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore">GBATEK</a>). You already modelled it: <code>type CPSR uint32</code>. Every bit is a flag; you manipulate it with bitwise ops. That's the whole mystery.</p>
+
+<h2>Bit layout (the part worth memorizing)</h2>
+<pre><code> 31 30 29 28  27   7  6  5  4-0
+ ┌──────────────┬───┬────────┬──────┐
+ │ N  Z  C  V   │ Q │ I F T  │ mode │
+ └──────────────┴───┴────────┴──────┘
+   condition      rsv IRQ FIQ THUMB</code></pre>
+<ul>
+  <li><strong>N Z C V</strong> (top 4 bits): condition flags. Set by arithmetic; read by conditional instructions like <code>BEQ</code>. This is why ARM has no <code>jump if equal</code> opcode — it has <code>B</code> + a 4-bit condition checked against the CPSR.</li>
+  <li><strong>I, F</strong>: disable IRQ/FIQ interrupts.</li>
+  <li><strong>T</strong>: THUMB state toggle. <code>BX</code> to an odd address sets T=1 and switches the CPU to 16-bit instructions. Your <code>InstructionState</code> enum and this bit must always agree.</li>
+  <li><strong>mode</strong> (low 5 bits): 0x10 User, 0x12 IRQ, 0x13 Supervisor, 0x1F System… (<a href="../reference/arm7tdmi-cpu-state.html">full table</a>). Mode switches swap in <em>banked</em> copies of r13/r14 — that's for a later lesson; today just decode it.</li>
+</ul>
+
+<h2>Go's bit-manipulation toolkit</h2>
+<p>Emulator code is 50% bit twiddling. These are the five idioms — all already idiomatic Go, no imports:</p>
+<pre><code>const (
+    flagN uint32 = 1 &lt;&lt; 31
+    flagT uint32 = 1 &lt;&lt; 5
+    modeMask    = 0x1F // low 5 bits
+)
+
+func (c CPSR) Has(f uint32) bool { return c&amp;f != 0 }
+func (c *CPSR) Set(f uint32)     { *c |= f }
+func (c *CPSR) Clear(f uint32)   { *c &amp;^= f }  // &amp;^ is Go's "AND NOT" bit-clear
+func (c CPSR) Mode() uint8       { return uint8(c &amp; modeMask) }</code></pre>
+<p>Notes: <code>&amp;^</code> has no C equivalent — it's <code>a &amp; ^b</code> as one operator. Notice <code>Has</code> takes a value receiver (read-only) while <code>Set</code>/<code>Clear</code> take <strong>pointer receivers</strong> — they mutate. That receiver choice is a core Go decision you'll make thousands of times in this project.</p>
+
+<h2>Your win: implement it in pika</h2>
+<p>Replace <code>type CPSR uint32</code> with the real thing in <code>internal/cpu/state.go</code>:</p>
+<ol>
+  <li>Add the flag constants and the four methods above.</li>
+  <li>Write <code>func (c CPSR) IsThumb() bool</code> using <code>Has</code>.</li>
+  <li>Sanity-check in <code>cmd/gba/main.go</code>: set Z and T on a CPSR value, print N/Z/C/T and Mode() with <code>%032b</code> formatting. Expected: bits 30 and 5 set, mode 0x10.</li>
+</ol>
+<p>Run <code>go test ./...</code> or just <code>go run ./cmd/gba</code> — seeing <code>00000100000000000000000000000000</code>-with-two-bits is your dopamine hit.</p>
+
+<h2>Check yourself</h2>
+<p>Retrieval, not review — answer from memory. Answers revealed instantly.</p>
+<div class="quiz" data-quiz='[
+  {"q":"Which CPSR bit selects THUMB state?","opts":["Bit 5","Bit 4","Bit 7","Bit 0"],"a":0,"why":"T is bit 5; bit 4 is the top mode bit."},
+  {"q":"What does the Go expression c &^= f do?","opts":["Clears bits","Sets bits","Flips bits","Reads bits"],"a":0,"why":"&^ is AND-NOT: keeps bits of c except those set in f."},
+  {"q":"Which receiver does a mutating Set method need?","opts":["Pointer receiver","Value receiver","Either receiver","No receiver"],"a":0,"why":"Value receivers get a copy; mutations would be lost."},
+  {"q":"Which mode value means Supervisor on GBA?","opts":["0x13","0x10","0x12","0x1F"],"a":0,"why":"0x13 SVC (SWI/reset); 0x10 User, 0x12 IRQ, 0x1F System."},
+  {"q":"Why does ARM need no dedicated equal-jump opcode?","opts":["Branch checks condition flags","Registers compare themselves","Pipeline predicts jumps","CPSR rewrites the code"],"a":0,"why":"One B opcode + 4-bit condition field selects on N/Z/C/V; BEQ = B + EQ condition."}
+]'></div>
+
+<h2>Primary source to read next</h2>
+<p><a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore"><strong>GBATEK — ARM CPU Core section</strong></a>. Skim only "Register Set" and "Flags" for now; ignore exceptions. Ten minutes with the real manual beats an hour of ChatGPT — verify everything against it.</p>
+
+<h2>Stuck?</h2>
+<p>Ask me — I'm your teacher, and any confusion here (receiver types, <code>&amp;^</code>, banked registers) is lesson material. Next lesson queued up: <em>condition codes + the data-processing instruction format</em> — the natural step once CPSR flags exist.</p>
+
+<footer class="lesson-footer">
+  <span>Lesson 0001 · <a href="../reference/arm7tdmi-cpu-state.html">Reference: ARM7TDMI CPU state</a></span>
+  <span>Sources: <a href="https://problemkaputt.de/gbatek.htm">GBATEK</a> · <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI TRM</a> · <a href="https://go.dev/ref/spec#Arithmetic_operators">Go spec: operators</a></span>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>
