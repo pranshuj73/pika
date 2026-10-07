@@ -63,12 +63,12 @@
 
 <h2>Go bit-manipulation idioms used with the CPSR</h2>
 <pre><code>const (
-    flagN uint32 = 1 &lt;&lt; 31
-    flagZ uint32 = 1 &lt;&lt; 30
-    flagC uint32 = 1 &lt;&lt; 29
-    flagV uint32 = 1 &lt;&lt; 28
-    flagT uint32 = 1 &lt;&lt; 5
-    modeMask uint32 = 0x1F
+    flagN CPSR = 1 &lt;&lt; 31  // type once; the rest inherit it
+    flagZ      = 1 &lt;&lt; 30
+    flagC      = 1 &lt;&lt; 29
+    flagV      = 1 &lt;&lt; 28
+    flagT      = 1 &lt;&lt; 5
+    modeMask   = 0x1F      // binary 11111 — the low five bits
 )
 
 c.Has(flagC)          // test:  c&amp;flag != 0

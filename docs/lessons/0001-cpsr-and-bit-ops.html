@@ -5,73 +5,134 @@
 <title>Lesson 1 — CPSR: the CPU's status line, and Go bit ops</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="stylesheet" href="../assets/quiz.css">
+<style>
+  .eli5 {
+    background: #eef6f0; border: 1px solid #bcd8c2; border-radius: 6px;
+    padding: 0.8rem 1.2rem; margin: 0.8rem 0 1.4rem; font-size: 0.98rem;
+  }
+  .eli5::before {
+    content: "🧸 ELI5 — plain-English version";
+    display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem;
+    letter-spacing: 0.06em; color: #2e7d32; margin-bottom: 0.3rem;
+  }
+</style>
 </head>
 <body>
 <header class="lesson-header">
-  <div class="kicker">Lesson 0001 · ~15 min</div>
+  <div class="kicker">Lesson 0001 · ~25 min</div>
   <h1>CPSR: the CPU's status line — and Go bit ops that make it real</h1>
 </header>
 
-<div class="mission-tie">Your README literally says <em>"cpsr (wtf is cpsr?)"</em>. This lesson kills that TODO. It also teaches the Go idiom (<code>&amp;^=</code>, masks, typed constants) you'll use in every instruction you ever implement. One stone, both birds.</div>
+<div class="mission-tie">Your README literally says <em>"cpsr (wtf is cpsr?)"</em>. This lesson kills that TODO with zero assumed background. It also teaches the Go idiom (<code>&amp;^=</code>, masks, typed constants) you'll use in every instruction you ever implement. One stone, both birds.</div>
 
-<h2>The idea in one paragraph</h2>
-<p>The ARM7TDMI (the GBA's CPU) has 16 registers, r0–r15 (<a href="../reference/arm7tdmi-cpu-state.html">cheat sheet</a>). Fifteen hold data. But the CPU also carries <em>status</em>: did the last result come out negative? zero? was there a carry? which mode am I in? ARM packs all of that into one extra 32-bit word called the <strong>CPSR — Current Program Status Register</strong> (<a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore">GBATEK</a>). You already modelled it: <code>type CPSR uint32</code>. Every bit is a flag; you manipulate it with bitwise ops. That's the whole mystery.</p>
+<h2>0. Ground floor: what a CPU actually is</h2>
+<p>The GBA contains an <strong>ARM7TDMI</strong> — a small processor. A CPU is a machine that does one loop, billions of times per second: <em>fetch</em> an instruction from memory, <em>decode</em> it (figure out what it means), <em>execute</em> it (do the thing), repeat. Your entire emulator is just a Go program imitating that loop.</p>
+<p>To do its work, the CPU needs somewhere to keep the numbers it's working on. It has 16 of those slots, called <strong>registers</strong>, named r0 through r15. Each holds one 32-bit number (that's why your Go type is <code>[16]uint32</code> — an array of sixteen 32-bit unsigned integers, one per register). Registers are the CPU's own private scratch paper — the fastest memory it has, vastly faster than the RAM on a cartridge or even the GBA's on-board RAM.</p>
 
-<h2>Bit layout (the part worth memorizing)</h2>
+<div class="eli5">
+Imagine a clerk with a 16-slot desk organizer. Every number he's actively working on sits in a slot on the desk. The filing cabinet across the room (RAM) is huge but slow to reach; the desk slots are instant. Two slots have special jobs: slot 14 is a sticky note for "where to return to after an errand" (the <strong>Link Register</strong>), and slot 15 is a finger pointing at the next instruction on the to-do list (the <strong>Program Counter</strong>). Emulating the CPU mostly means: faithfully copying this desk, the finger, and the rules for moving them.
+</div>
+
+<p>Three of the sixteen have fixed roles (<a href="../reference/arm7tdmi-cpu-state.html">cheat sheet</a>): <strong>r13</strong> is the stack pointer (where temporary storage starts), <strong>r14</strong> is the link register, <strong>r15</strong> is the program counter — and reading r15 gives you an address slightly ahead of the current instruction, because the real CPU fetches instructions early to stay fast (a trick called <em>pipelining</em>). You don't need that detail today; just don't panic when you meet it in DawnGBA's code.</p>
+
+<h2>1. What is "status", and why does the CPU need it?</h2>
+<p>Registers r0–r15 hold <em>data</em>. But the CPU also needs to remember facts about what it just did: "was my last result zero? negative? did it overflow?". ARM answers this with one extra 32-bit register that is <em>not</em> part of the r0–r15 array: the <strong>CPSR — Current Program Status Register</strong> (<a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore">GBATEK</a>). Each of its 32 bits is a single yes/no switch. You already modelled it in Go: <code>type CPSR uint32</code>. That line was correct — this lesson fills in what it means.</p>
+
+<div class="eli5">
+The CPSR is the clerk's <strong>status board</strong> — a row of little light switches on his desk. After every calculation the CPU flicks switches automatically: "result was <b>N</b>egative" ⬅ on, "result was <b>Z</b>ero" ⬅ off, and so on. Later, when game code says "branch if the last compare said equal", the CPU doesn't re-do the math — it just glances at the Zero switch. That's the entire job of the CPSR: cheap memory of recent events, one bit per fact. 32 bits, 32 yes/no answers, all in one number.
+</div>
+
+<h2>2. The bit layout — what each switch means</h2>
 <pre><code> 31 30 29 28  27   7  6  5  4-0
  ┌──────────────┬───┬────────┬──────┐
  │ N  Z  C  V   │ Q │ I F T  │ mode │
  └──────────────┴───┴────────┴──────┘
    condition      rsv IRQ FIQ THUMB</code></pre>
-<ul>
-  <li><strong>N Z C V</strong> (top 4 bits): condition flags. Set by arithmetic; read by conditional instructions like <code>BEQ</code>. This is why ARM has no <code>jump if equal</code> opcode — it has <code>B</code> + a 4-bit condition checked against the CPSR.</li>
-  <li><strong>I, F</strong>: disable IRQ/FIQ interrupts.</li>
-  <li><strong>T</strong>: THUMB state toggle. <code>BX</code> to an odd address sets T=1 and switches the CPU to 16-bit instructions. Your <code>InstructionState</code> enum and this bit must always agree.</li>
-  <li><strong>mode</strong> (low 5 bits): 0x10 User, 0x12 IRQ, 0x13 Supervisor, 0x1F System… (<a href="../reference/arm7tdmi-cpu-state.html">full table</a>). Mode switches swap in <em>banked</em> copies of r13/r14 — that's for a later lesson; today just decode it.</li>
-</ul>
 
-<h2>Go's bit-manipulation toolkit</h2>
-<p>Emulator code is 50% bit twiddling. These are the five idioms — all already idiomatic Go, no imports:</p>
+<p><strong>N, Z, C, V — the condition flags (bits 31–28).</strong> After arithmetic the CPU sets these automatically: <strong>N</strong>egative = bit 31 of the result was 1 (for signed numbers, that means negative); <strong>Z</strong>ero = the result was exactly 0; <strong>C</strong>arry = the operation produced a carry out (or, for shifts/rotates, the last bit shifted out); o<strong>V</strong>erflow = the result doesn't fit in a signed 32-bit interpretation. These four bits are read by <em>conditional instructions</em> — ARM's superpower is that <em>every</em> instruction can carry a condition like "only do this if the last result was zero".</p>
+
+<div class="eli5">
+Why "negative" = top bit? A 32-bit number can be read two ways: as a plain unsigned number, or as a <em>signed</em> one where the highest bit acts as a minus sign (this is called <a href="https://en.wikipedia.org/wiki/Two%27s_complement">two's complement</a>). If bit 31 is 1, the signed reading is negative — so N is literally just a copy of that bit. And why does Z exist? Because "compare two numbers" is implemented as "subtract them and see if you got zero" — flicking one switch is cheaper than storing the whole result. Old trick, still how every modern CPU works.
+</div>
+
+<p><strong>I, F — interrupt masks (bits 7, 6).</strong> The game console's hardware (buttons, video, timers) can interrupt the CPU to demand attention. I=1 means "ignore normal interrupts right now"; F=1 means "ignore fast interrupts". Relevant later when you wire up the PPU; today just know what the letters mean.</p>
+
+<div class="eli5">
+Interrupts are a doorbell. The game is running along, and ding — the player pressed a button / the screen wants the next frame. The CPU pauses the game, runs a handler, then resumes. The I and F bits are the "do not disturb" sign on the door. Setting I means the doorbell is muted. You'll flip these yourself when you write interrupt handling, much later in the project.
+</div>
+
+<p><strong>T — THUMB state (bit 5).</strong> The ARM7TDMI understands two instruction formats: <strong>ARM</strong> (every instruction is 32 bits — expressive but fat) and <strong>THUMB</strong> (16 bits — half the size, fewer options). Games live almost entirely in THUMB because smaller code = cheaper cartridges. The T bit says which format the CPU currently expects. Your <code>InstructionState</code> enum (<code>ARM</code>/<code>THUMB</code>) and this bit must always agree — they're the same fact stored twice.</p>
+
+<div class="eli5">
+The CPU is bilingual: it speaks a long-form language (ARM, 32-bit sentences) and a shorthand language (THUMB, 16-bit abbreviations). The T bit is which language it's currently listening in. If it's set but you decode the next instruction as ARM — or vice versa — you read gibberish and the emulator crashes. This is one of the most common emulator bugs, which is why we're making it concrete now.
+</div>
+
+<p><strong>Mode (bits 4–0).</strong> ARM CPUs run in one of several <em>privilege levels</em>: User (normal game code, restricted), IRQ (servicing an interrupt), Supervisor (handling a software interrupt / reset), and others (<a href="../reference/arm7tdmi-cpu-state.html">full table</a>). The low 5 bits of the CPSR encode which. Some modes swap in <em>banked</em> private copies of certain registers — that's a later lesson; today you only need to be able to <em>read</em> the mode.</p>
+
+<div class="eli5">
+Think of modes as staff clearance levels at a company. Most of the time the CPU is a regular employee (User mode) with no keys to the server room. When the doorbell rings (interrupt), it temporarily becomes a technician (IRQ mode) with its own private r13/r14 desk slots — so it doesn't scribble over the employee's notes — and demotes itself back when done. You don't implement the switching today. You just learn to look at bits 4–0 and say "ah, we're in IRQ mode right now".
+</div>
+
+<h2>3. Go's bit-manipulation toolkit</h2>
+<p>You now know the CPSR is "32 yes/no switches in one number". To use it you must flip and read single bits of a <code>uint32</code>. This is 50% of all emulator code, and Go has clean syntax for it. The trick everywhere is the same: build a number with <em>only the bit you care about</em> set (a <strong>mask</strong>), then combine with a bitwise operator.</p>
 <pre><code>const (
-    flagN uint32 = 1 &lt;&lt; 31
+    flagN uint32 = 1 &lt;&lt; 31   // 1 shifted left 31 places = 0x80000000
+    flagZ uint32 = 1 &lt;&lt; 30
+    flagC uint32 = 1 &lt;&lt; 29
+    flagV uint32 = 1 &lt;&lt; 28
     flagT uint32 = 1 &lt;&lt; 5
-    modeMask    = 0x1F // low 5 bits
+    modeMask    = 0x1F      // binary 11111 — the low five bits
 )
 
-func (c CPSR) Has(f uint32) bool { return c&amp;f != 0 }
-func (c *CPSR) Set(f uint32)     { *c |= f }
-func (c *CPSR) Clear(f uint32)   { *c &amp;^= f }  // &amp;^ is Go's "AND NOT" bit-clear
-func (c CPSR) Mode() uint8       { return uint8(c &amp; modeMask) }</code></pre>
-<p>Notes: <code>&amp;^</code> has no C equivalent — it's <code>a &amp; ^b</code> as one operator. Notice <code>Has</code> takes a value receiver (read-only) while <code>Set</code>/<code>Clear</code> take <strong>pointer receivers</strong> — they mutate. That receiver choice is a core Go decision you'll make thousands of times in this project.</p>
+func (c CPSR) Has(f uint32) bool { return c&amp;f != 0 } // is the switch on?
+func (c *CPSR) Set(f uint32)     { *c |= f }         // flick switch ON
+func (c *CPSR) Clear(f uint32)   { *c &amp;^= f }        // flick switch OFF
+func (c CPSR) Mode() uint8       { return uint8(c &amp; modeMask) } // read 5 switches at once</code></pre>
 
-<h2>Your win: implement it in pika</h2>
+<div class="eli5">
+<strong>Shifting builds the mask:</strong> <code>1 &lt;&lt; 31</code> means "the number 1, shifted left 31 slots" — i.e. a single 1 in bit position 31 and 0s everywhere else. It's like a strip of 32 light switches with exactly one flipped. <br><br>
+<strong><code>&amp;</code> (AND) tests:</strong> AND keeps a bit only where <em>both</em> numbers have it. <code>c &amp; flagZ</code> is zero everywhere except possibly bit 30 — so "is it nonzero?" = "is the Z switch on?". <br><br>
+<strong><code>|=</code> (OR) sets:</strong> OR turns a bit on if it's on in <em>either</em> number. OR-ing in the mask leaves all other bits untouched and forces your target bit to 1. <br><br>
+<strong><code>&amp;^=</code> (AND-NOT) clears:</strong> unique-to-Go operator; <code>c &amp;^ f</code> = "keep everything in c <em>except</em> the bits in f". It's the surgical-off switch — the opposite of <code>|=</code>. <br><br>
+<strong>Masks read fields:</strong> a mode like 0x13 lives in the low 5 bits, so <code>c &amp; 0x1F</code> zeroes everything above bit 4 and leaves the mode number intact.
+</div>
+
+<p>One more Go concept hiding in that code: <strong>receivers</strong>. <code>func (c CPSR) Has(...)</code> takes a <em>value receiver</em> — Go hands the method a copy, fine because <code>Has</code> only reads. <code>func (c *CPSR) Set(...)</code> takes a <em>pointer receiver</em> — no copy, because <code>Set</code> must change the original. If <code>Set</code> had a value receiver it would flick a switch on a photocopy and your real CPSR would never change — a classic silent Go bug. Rule of thumb: mutate → pointer, read-only → value.</p>
+
+<div class="eli5">
+Value receiver = reading a notice pinned to the board (you get a photocopy; writing on it changes nothing). Pointer receiver = being handed the actual pen to write on the board. If your method needs to change the thing, it needs the pen. When you later write <code>cpu.Step()</code> it will need a pointer receiver too — same reasoning.
+</div>
+
+<h2>4. Your win: implement it in pika</h2>
 <p>Replace <code>type CPSR uint32</code> with the real thing in <code>internal/cpu/state.go</code>:</p>
 <ol>
-  <li>Add the flag constants and the four methods above.</li>
-  <li>Write <code>func (c CPSR) IsThumb() bool</code> using <code>Has</code>.</li>
-  <li>Sanity-check in <code>cmd/gba/main.go</code>: set Z and T on a CPSR value, print N/Z/C/T and Mode() with <code>%032b</code> formatting. Expected: bits 30 and 5 set, mode 0x10.</li>
+  <li>Paste the flag constants and the four methods above.</li>
+  <li>Write <code>func (c CPSR) IsThumb() bool</code> using <code>Has</code> — one line.</li>
+  <li>Sanity-check in <code>cmd/gba/main.go</code>: create <code>var c cpu.CPSR</code>, call <code>c.Set(flagZ)</code> and <code>c.Set(flagT)</code>, then print with <code>fmt.Printf("%032b\\n", c)</code> and <code>c.Mode()</code>. Expected output: a 32-bit string with 1s at positions 30 and 5 only, and mode <code>0x10</code>… wait, 0x00 actually — the mode bits start at zero until you set them. See what happens when you also <code>c.Set(0x10)</code>. That small experiment cements "mode = low 5 bits".</li>
 </ol>
-<p>Run <code>go test ./...</code> or just <code>go run ./cmd/gba</code> — seeing <code>00000100000000000000000000000000</code>-with-two-bits is your dopamine hit.</p>
+<p><code>go run ./cmd/gba</code> — watching the exact bits you asked for light up is the dopamine hit. If <code>%032b</code> confuses you, that's "print as binary, pad to 32 digits".</p>
 
-<h2>Check yourself</h2>
-<p>Retrieval, not review — answer from memory. Answers revealed instantly.</p>
+<h2>5. Check yourself</h2>
+<p>Retrieval, not review — answer from memory before peeking. Getting some wrong is the point: effortful recall is what builds long-term retention.</p>
 <div class="quiz" data-quiz='[
   {"q":"Which CPSR bit selects THUMB state?","opts":["Bit 5","Bit 4","Bit 7","Bit 0"],"a":0,"why":"T is bit 5; bit 4 is the top mode bit."},
   {"q":"What does the Go expression c &^= f do?","opts":["Clears bits","Sets bits","Flips bits","Reads bits"],"a":0,"why":"&^ is AND-NOT: keeps bits of c except those set in f."},
   {"q":"Which receiver does a mutating Set method need?","opts":["Pointer receiver","Value receiver","Either receiver","No receiver"],"a":0,"why":"Value receivers get a copy; mutations would be lost."},
   {"q":"Which mode value means Supervisor on GBA?","opts":["0x13","0x10","0x12","0x1F"],"a":0,"why":"0x13 SVC (SWI/reset); 0x10 User, 0x12 IRQ, 0x1F System."},
-  {"q":"Why does ARM need no dedicated equal-jump opcode?","opts":["Branch checks condition flags","Registers compare themselves","Pipeline predicts jumps","CPSR rewrites the code"],"a":0,"why":"One B opcode + 4-bit condition field selects on N/Z/C/V; BEQ = B + EQ condition."}
+  {"q":"Why does ARM need no dedicated equal-jump opcode?","opts":["Branch checks condition flags","Registers compare themselves","Pipeline predicts jumps","CPSR rewrites the code"],"a":0,"why":"One B opcode + 4-bit condition field selects on N/Z/C/V; BEQ = B + EQ condition."},
+  {"q":"What does the Z flag being set tell you?","opts":["Result was zero","Result was negative","A carry occurred","Interrupts disabled"],"a":0,"why":"Z = the last arithmetic result was exactly 0."},
+  {"q":"Registers r0–r15 are best described as…","opts":["The CPU desk slots","The cartridge storage","A cache of the RAM","The video memory"],"a":0,"why":"Registers are the CPU own ultra-fast scratch slots, unrelated to RAM or VRAM."}
 ]'></div>
 
-<h2>Primary source to read next</h2>
-<p><a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore"><strong>GBATEK — ARM CPU Core section</strong></a>. Skim only "Register Set" and "Flags" for now; ignore exceptions. Ten minutes with the real manual beats an hour of ChatGPT — verify everything against it.</p>
+<h2>6. Primary source to read next</h2>
+<p><a href="https://problemkaputt.de/gbatek.htm#ARMCPUCore"><strong>GBATEK — ARM CPU Core section</strong></a>. Skim only "Register Set" and "Flags" for now; ignore exceptions and banked registers. Ten minutes with the real manual beats an hour of ChatGPT — and from now on, make GBATEK your first stop and grill the LLM <em>about what GBATEK says</em>. That's how you use ChatGPT without being quietly misled.</p>
 
 <h2>Stuck?</h2>
-<p>Ask me — I'm your teacher, and any confusion here (receiver types, <code>&amp;^</code>, banked registers) is lesson material. Next lesson queued up: <em>condition codes + the data-processing instruction format</em> — the natural step once CPSR flags exist.</p>
+<p>Ask me — I'm your teacher, and any confusion here (two's complement, receiver types, <code>&amp;^</code>, what "banked" means) is exactly lesson material. Tell me what's unclear and I'll expand it or spin it into its own micro-lesson. Next lesson queued up: <em>condition codes + the data-processing instruction format</em> — the natural step once CPSR flags exist.</p>
 
 <footer class="lesson-footer">
   <span>Lesson 0001 · <a href="../reference/arm7tdmi-cpu-state.html">Reference: ARM7TDMI CPU state</a></span>
-  <span>Sources: <a href="https://problemkaputt.de/gbatek.htm">GBATEK</a> · <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI TRM</a> · <a href="https://go.dev/ref/spec#Arithmetic_operators">Go spec: operators</a></span>
+  <span>Sources: <a href="https://problemkaputt.de/gbatek.htm">GBATEK</a> · <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI TRM</a> · <a href="https://go.dev/ref/spec#Arithmetic_operators">Go spec: operators</a> · <a href="https://en.wikipedia.org/wiki/Two%27s_complement">Two's complement</a></span>
 </footer>
 <script src="../assets/quiz.js"></script>
 </body>

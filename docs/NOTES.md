@@ -7,3 +7,5 @@
 - Self-imposed constraints to honor in teaching: terminal-only rendering, goroutines, performance.
 
 - Preference: keep the repo clean — all teaching files live under docs/, never at repo root.
+- Preference: ZERO assumed background on GBA/low-level/hardware concepts. Every lesson section gets an explicit ELI5 block (plain-English analogy) in addition to the technical explanation.
+- Learning moment (LR-worthy): user hit Go distinct-named-type mixing error (CPSR vs uint32) in Set(). Understood the fix = same-type constants. Signals: basic type system grasp forming; typed constants + conversions idioms are live teaching topics.
