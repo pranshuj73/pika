@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 2 — Condition codes: how the CPU makes decisions</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+<style>
+  .eli5 { background: #eef6f0; border: 1px solid #bcd8c2; border-radius: 6px; padding: 0.8rem 1.2rem; margin: 0.8rem 0 1.4rem; font-size: 0.98rem; }
+  .eli5::before { content: "🧸 ELI5 — plain-English version"; display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem; letter-spacing: 0.06em; color: #2e7d32; margin-bottom: 0.3rem; }
+  .story { background: #fdf6ec; border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1.2rem; margin: 1rem 0; }
+  .story::before { content: "🎮 Worked example — a game making a decision"; display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; }
+</style>
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Lesson 0002 · ~35 min (v2 — rewritten)</div>
+  <h1>Condition codes: how the CPU makes decisions</h1>
+</header>
+
+<div class="mission-tie">Lesson 1 gave you flags in the CPSR — four switches that get flicked by calculations. Today you learn <em>who reads those switches and why</em>: every ARM instruction checks them before running. You'll build the gatekeeper function, and learn the extraction move that all instruction decoding is built on. No code from me — descriptions and objectives only; every line is yours.</div>
+
+<h2>1. Programs are decisions in a loop</h2>
+<p>Strip away everything fancy and a game is this: "move the sprite; <em>if</em> the player pressed A, <em>then</em> jump; <em>if</em> health is zero, <em>then</em> play the death animation". Every "if" in every program ever written must eventually become something a CPU can do — and a CPU can only move numbers around, add them, and compare them. So the question this lesson answers is: <strong>how does a machine that can only do arithmetic manage to say "if"?</strong></p>
+
+<div class="eli5">
+Imagine a factory worker with zero judgment. You can't tell him "if the widget is defective, throw it out" — he doesn't understand "defective". But you <em>can</em> give him a scale that lights a red lamp when a widget is underweight, and a rule card stapled to his next task that says "only do this if the red lamp is on". Now he makes decisions — with no judgment at all, just a lamp and a rule card. The CPU is the worker. The CPSR flags are the lamp panel (from lesson 1). The condition code — today's topic — is the rule card, and there's one stapled to <em>every single task</em> he's ever given.
+</div>
+
+<h2>2. What an ARM instruction physically is</h2>
+<p>Game code on the cartridge is just a very long sequence of 32-bit numbers. Each number is one instruction. There's no text, no words like "ADD" — the hardware only sees bits, and the meaning lives in <em>fixed agreements</em> about which bit positions mean what (<a href="https://problemkaputt.de/gbatek.htm#ARMInstructionSet">GBATEK — ARM instruction set</a>). The top four bits — positions 31, 30, 29, 28 — are always, in every ARM instruction, reserved for one purpose: the <strong>condition</strong>.</p>
+
+<div class="eli5">
+An instruction is a form with 32 numbered checkboxes, and the printer reserved boxes 31–28 for the same thing on every form ever printed: "under what condition should this task happen?" When humans write ARM assembly they write <code>ADDEQ</code> or <code>MOVNE</code> — those letter suffixes (EQ, NE) are just names for the 16 possible 4-bit patterns in those boxes. <code>ADD</code> alone secretly means <code>ADDEQ</code>… no — <code>ADDAL</code>, "always". There is no condition-less instruction. Ever.
+</div>
+
+<h2>3. Why four bits gives exactly 16 conditions — and why that's enough</h2>
+<p>Four bits can hold 16 patterns (0000 through 1111), and ARM assigns each a meaning. Here's the insight that makes the table learnable instead of random: <strong>the conditions are just questions about the four CPSR switches</strong> (N, Z, C, V — negative, zero, carry, overflow from lesson 1). Sixteen slots, sixteen sensible questions:</p>
+<ul>
+  <li><strong>Eight simple questions</strong> (patterns 0–7): "is switch X on?" / "is switch X off?" — asked twice for each of the four switches. Is Z on (EQ, "equal")? Is Z off (NE, "not equal")? Is C on (CS)? Off (CC)? And so on for N (MI/PL — "minus"/"plus") and V (VS/VC).</li>
+  <li><strong>Four comparison questions</strong> (patterns 8–13): combinations for "greater/less" questions, which need two switches at once. Explain in §5.</li>
+  <li><strong>Two special ones</strong>: "always" (AL, pattern 1110 — the default stamped on plain instructions) and one reserved pattern that never executes.</li>
+</ul>
+
+<div class="eli5">
+Sixteen rule cards, and only three kinds: "check one lamp" (8 of them), "check two lamps together" (6 of them), and "ignore the lamps" (1) plus one blank card nobody uses. That's the entire mystery. The scary-looking 16-row table in every reference is just this list. Also — beautifully — the cards come in opposite pairs sitting next to each other: pattern 0 is "Z on", pattern 1 is "Z off"; pattern 2 is "C on", pattern 3 is "C off"… flip the last bit of the pattern and you get the negation. That one observation cuts the table in half.
+</div>
+
+<h2>4. The extraction move — reading a field out of a 32-bit word</h2>
+<p>Before you can <em>use</em> the condition you must get it out of the instruction. The top 4 bits hold a number 0–15, and you need that number alone, as a small value your code can branch on. The universal technique in emulator code, used for every field of every instruction: <strong>shift the word right until your field's lowest bit reaches position 0, then erase (mask off) any bits above the field's width</strong>.</p>
+
+<h2>6. One more hardware fact: skipped ≠ free</h2>
+Picture the 32 boxes as a strip of film, and you want just boxes 31–28. Two moves: <em>slide the film right</em> — every bit hops toward position 0, and each hop drops the bottom bit off the edge. Slide 28 times and your four interesting boxes are now sitting at positions 3–0, the front row. <em>Then cover the film</em> with a card that has holes only over your field's width — everything sticking out above position 3 vanishes. What's left, read as a plain number, is your condition: say, 2 for CS. Shift to bring it to the front, mask to isolate it. That's the whole move — and "how wide is my field" tells you how many holes the mask card needs (4 bits wide → four 1s → the mask value 0xF). You will repeat this for Rn, Rd, opcodes, everything. It never gets more complicated than this.
+</div>
+
+<p>⚠️ One warning, from your own lesson-1 bug: what this move gives you is the field's <em>value</em> — a plain number like 2. A value of 2 does not mean "bit 2 of the CPSR is set". It means "the rule card stamped on this instruction is card #2". Field values, bit positions, and enum constants are three different kinds of thing; never substitute one for another.</p>
+
+<h2>5. Signed vs unsigned — why "greater" needs two switches</h2>
+<p>This is the only genuinely tricky idea in the lesson, so take it slowly. The four comparison conditions HI, LS, GE, LT, GT, LE answer "is A bigger than B?" — but "bigger" has two meanings, and ARM supports both:</p>
+<ul>
+  <li><strong>Unsigned</strong> (HI = higher, LS = lower-or-same): treat the 32 bits as a plain non-negative number, 0 to about 4.3 billion. Question answered by switches <strong>C and Z</strong>: a compare is secretly a subtraction, C says "the subtraction didn't need to borrow" (A ≥ B), Z says "it came out exactly zero" (A = B). Unsigned-greater is therefore "C on AND Z off".</li>
+  <li><strong>Signed</strong> (GE, LT, GT, LE): treat the number as positive-or-negative (remember from lesson 1: bit 31 acts as the sign). Question answered by switches <strong>N and V</strong>: N says "the subtraction <em>looks</em> negative", V says "the subtraction overflowed so badly the sign bit is now a lie". If V is off, trust N: N on means A &lt; B, N off means A ≥ B. If V is on, N is lying — flip your reading. Written compactly: "A ≥ B" is exactly "N equals V", and "A &lt; B" is "N differs from V". GT and LE just add the Z switch for "and not zero" / "or zero".</li>
+</ul>
+
+<div class="eli5">
+Unsigned is comparing <em>weights</em> on a scale — every number is just "how much", no concept of minus. Signed is comparing <em>temperatures</em>, where below-zero exists. Now the subtle part: after computing A − B, the "is it negative?" lamp (N) is your obvious answer — but if the true answer was so enormously negative that it fell off the end of 32 bits, the lamp got scrambled (that's overflow, V). So the rule is: read the N lamp, but first check the V lamp to know whether N is honest. "N agrees with V" = honest "not less". You will not need to re-derive this — ever. You implement the 16 rows once, faithfully, from the <a href="../reference/arm-condition-codes.html">cheat sheet</a>, and GBATEK is the referee.
+</div>
+
+<div class="story">
+Player gets hit. Game code: load current health into a register; subtract the damage; the flags panel updates automatically — say health went 3 − 5: as a signed subtraction that's −2, so N flicks on, V stays off. The <em>very next instruction</em> — the one that triggers the game-over routine — was printed with the rule card "MI" (minus, N on). Worker checks the panel: red lamp on, condition satisfied, task executes, sad music plays. Nobody wrote an "if" — there was a subtraction and a pre-stamped card. That's an <code>if</code> statement at the hardware level, and your emulator reproduces it by checking your CPSR switches exactly the same way.
+</div>
+
+<h2>6. One more hardware fact: skipped ≠ free</h6></h2>
+<p>When the condition fails, the instruction doesn't execute — but the CPU already fetched it and looked at it, and that costs one tick of time. On real hardware the tick is burned either way. For a rudimentary emulator, irrelevant; for your accuracy goal, you'll account for it when you build timing. Park the fact; move on.</p>
+
+<h2>7. Your objectives (designs and code are yours)</h2>
+<ol>
+  <li><strong>Build the gatekeeper.</strong> In your cpu package, add a function on your CPSR type that takes a condition number (0–15) and reports yes/no by inspecting your N/Z/C/V switches. Structure it as sixteen cases; group them as §3 suggests (single-lamp pairs, two-lamp comparisons, always, never) rather than memorizing an order. The <a href="../reference/arm-condition-codes.html">cheat sheet table</a> is your referee — implement, then diff against it.</li>
+  <li><strong>Practice the extraction move.</strong> In your main file, take a 32-bit word you construct that has some pattern in its top four bits (write the number in hexadecimal with a chosen top digit, e.g. a word starting with the digit 2 — that digit <em>is</em> the condition 2 in hex). Extract it with shift-then-mask and print it; confirm you get 2 back. Try digits 0, 7, E — confirm 0, 7, 14.</li>
+  <li><strong>Close the loop.</strong> Set the C switch on your CPSR; ask the gatekeeper about condition 2 (CS — "carry set"); expect yes. Clear C; expect no. Then condition 0 (EQ) with Z set and cleared — yes/no. Four checks, each one flipping a lamp and confirming only the matching cards respond.</li>
+</ol>
+<p>Acceptance: all four checks behave, and you can say out loud, without looking: what the extraction move is, and why GE means "N equals V".</p>
+
+<h2>8. Check yourself</h2>
+<div class="quiz" data-quiz='[
+  {"q":"Where does every ARM instruction store its condition?","opts":["Top four bits","Bottom four bits","Bits 27-26","Bit 20 only"],"a":0,"why":"Bits 31-28 are reserved for cond in every ARM instruction, always."},
+  {"q":"Condition NE asks which question?","opts":["Is Z off?","Is Z on?","Is N on?","Is V on?"],"a":0,"why":"EQ = Z set (result was zero, i.e. equal); NE is its negation: Z clear."},
+  {"q":"The extraction move is: shift right, then…","opts":["Mask off high bits","Flip all bits","Shift left again","Add the mask"],"a":0,"why":"Shift brings the field to position 0; the mask erases everything above its width."},
+  {"q":"Which condition means signed greater-or-equal?","opts":["N equals V","N differs from V","C equals one","Z equals zero"],"a":0,"why":"GE is N==V: the negative lamp agrees with the overflow lamp."},
+  {"q":"Pattern 1110 (AL) means…","opts":["always execute","never execute","if negative","if unsigned higher"],"a":0,"why":"AL is the default stamped on all plain instructions; 1111 is the reserved never."},
+  {"q":"Why does unsigned-greater check C and Z?","opts":["Compare is subtraction","Registers compare twice","Carry means greater","Z marks the sign"],"a":0,"why":"A compare subtracts: no-borrow (C) means A>=B, Z means equal; greater = C on, Z off."},
+  {"q":"When a condition fails, the instruction still…","opts":["Burns one cycle","Costs no time","Refetches itself","Raises an interrupt"],"a":0,"why":"Fetch and decode already happened — the tick is spent. Matters for timing accuracy later."}
+]'></div>
+
+<h2>9. Primary source</h2>
+<p><a href="https://problemkaputt.de/gbatek.htm#ARMConditionCodes"><strong>GBATEK — Condition Codes table</strong></a>. Read it <em>after</em> implementing, not before — then diff your sixteen cases against it row by row. Finding your own mistake teaches more than avoiding one.</p>
+
+<h2>Stuck?</h2>
+<p>Ask me — the usual sticking points are: shift direction confusion (which bit lands where after shifting — I'll walk you through it one hop at a time), the N/V reasoning in §5 (fair, it's the hardest paragraph — I can re-explain with concrete numbers), or "why 16" not clicking. Once your four checks pass, <a href="0003-data-processing.html">lesson 3</a> is waiting: the rest of the instruction form and your first executing instruction.</p>
+
+<footer class="lesson-footer">
+  <span>Lesson 0002 (v2) · <a href="../reference/arm-condition-codes.html">Reference: condition codes</a> · <a href="0001-cpsr-and-bit-ops.html">Lesson 1</a> · <a href="0003-data-processing.html">Lesson 3</a></span>
+  <span>Sources: <a href="https://problemkaputt.de/gbatek.htm">GBATEK</a> · <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI TRM</a></span>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

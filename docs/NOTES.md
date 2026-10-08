@@ -9,3 +9,6 @@
 - Preference: keep the repo clean — all teaching files live under docs/, never at repo root.
 - Preference: ZERO assumed background on GBA/low-level/hardware concepts. Every lesson section gets an explicit ELI5 block (plain-English analogy) in addition to the technical explanation.
 - Learning moment (LR-worthy): user hit Go distinct-named-type mixing error (CPSR vs uint32) in Set(). Understood the fix = same-type constants. Signals: basic type system grasp forming; typed constants + conversions idioms are live teaching topics.
+- Preference: NO code in lessons. Give plain-instruction objectives and explanations only; user writes all code themselves. (stated re lesson 3)
+- Preference: hints must be minimal — name the failing behavior/concept only, never hand over the fix line. User wants to derive fixes.
+- Project convention: tests live in tests/<pkg>/ as external _test packages mirroring internal/ structure.

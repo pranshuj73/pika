@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lesson 3 — Data processing: your first executing instruction</title>
+<link rel="stylesheet" href="../assets/style.css">
+<link rel="stylesheet" href="../assets/quiz.css">
+<style>
+  .eli5 { background: #eef6f0; border: 1px solid #bcd8c2; border-radius: 6px; padding: 0.8rem 1.2rem; margin: 0.8rem 0 1.4rem; font-size: 0.98rem; }
+  .eli5::before { content: "🧸 ELI5 — plain-English version"; display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem; letter-spacing: 0.06em; color: #2e7d32; margin-bottom: 0.3rem; }
+</style>
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Lesson 0003 · ~40 min</div>
+  <h1>Data processing: your first actually-executing instruction</h1>
+</header>
+
+<div class="mission-tie">Lessons 1–2 gave you CPU state and the cond gate. Today the CPU <em>does something</em>: you'll decode the data-processing format — the most common instruction family in ARM — and execute <code>MOV</code> through it. This is the moment pika stops being structs and starts being an emulator. Per your preference: <strong>no code from me — instructions, layouts, and explanations only. Every line of Go is yours.</strong></div>
+
+<h2>1. What "executing an instruction" means in an emulator</h2>
+<p>Real hardware runs electricity through silicon. An emulator replaces that with three Go steps you perform in a loop forever: <strong>fetch</strong> (read 4 bytes from the address in PC), <strong>decode</strong> (slice the 32-bit word into fields), <strong>execute</strong> (do what the fields say: change registers, flags, or memory), then advance PC. Everything pika will ever be — down to rendering Pokémon FireRed in your terminal — is this loop plus better bookkeeping. Today you build the decode+execute half for one instruction family.</p>
+
+<div class="eli5">
+Think of yourself as an actor reading a script written in an utterly rigid language: every sentence is exactly 32 letters, and the meaning of each letter position is fixed by a rulebook. You read a sentence, chop it into positions, look up what each chunk means, act it out, and move to the next sentence. That's it. There is no intelligence anywhere in a CPU — just a very fast, very literal actor. Your job as emulator author is to be <em>exactly as literal</em>, because the game depends on the rulebook being followed to the letter.
+</div>
+
+<h2>2. The instruction families, and why we start here</h2>
+<p>ARM groups instructions by the two bits at positions 27–26 (<a href="https://problemkaputt.de/gbatek.htm#ARMInstructionSet">GBATEK</a>). Data processing is marked by both bits being 0 — and it's the biggest, most-used family: all the arithmetic, logic, moves, and compares. Roughly: <em>if it computes a value or compares two values, it lives here.</em> The other groups (multiply, load/store, branch…) reuse the same decoding skills on different layouts, so this family teaches you the pattern once and for all.</p>
+
+<div class="eli5">
+The two bits at 27–26 are the form's "department" code. 00 = the math department — by far the busiest desk in the office. Learn to process one math form and every other department is the same chore with a different box layout. That's why every emulator tutorial on Earth starts here; it's not tradition, it's leverage.
+</div>
+
+<h2>3. The full layout — every box on the form</h2>
+<p>From bit 31 down to bit 0, a data-processing instruction is:</p>
+<pre><code> 31-28  27 26  25    24-21  20   19-16  15-12  11-0
+ ┌──────┬───────┬─────┬──────┬────┬──────┬──────┬──────────┐
+ │ cond │ 0  0  │ I   │opcode│ S  │  Rn  │  Rd  │ operand2 │
+ └──────┴───────┴─────┴──────┴────┴──────┴──────┴──────────┘</code></pre>
+<p>Walk through each box slowly — this table is the lesson:</p>
+<ul>
+  <li><strong>cond (31–28)</strong> — lesson 2. Gate the whole instruction through your <code>ConditionPassed</code> before anything else happens.</li>
+  <li><strong>group (27–26) = 00</strong> — the department code. If these bits aren't 00, this isn't a data-processing instruction and your decoder must route elsewhere (later lessons).</li>
+  <li><strong>I (25)</strong> — the "immediate" switch. Decides what operand2 <em>is</em>: 1 means "a constant baked into the instruction", 0 means "take a register and optionally shift it". One bit, two completely different readings of the low 12 bits. Miss this bit and everything downstream is garbage.</li>
+  <li><strong>opcode (24–21)</strong> — which of the 16 operations (AND, SUB, ADD, MOV… full table in the <a href="../reference/arm-data-processing.html">cheat sheet</a>).</li>
+  <li><strong>S (20)</strong> — "should this instruction update the CPSR flags when it finishes?" In assembly this is the <code>S</code> suffix: <code>MOV</code> vs <code>MOVS</code>. Compilers set S when the <em>next</em> instruction will branch on the result.</li>
+  <li><strong>Rn (19–16)</strong> — a register <em>number</em> (0–15), i.e. an index into your registers array. The first operand.</li>
+  <li><strong>Rd (15–12)</strong> — destination register number. Where the result goes.</li>
+  <li><strong>operand2 (11–0)</strong> — the second operand, encoded. See §5.</li>
+</ul>
+
+<div class="eli5">
+Read it as a work order: <em>"IF the status board allows it (cond), take register Rn and operand2, run them through machine #opcode, put the answer in register Rd, and update the board if the S checkbox is ticked."</em> The I checkbox decides whether operand2 is a number written directly on the order or a reference to another desk slot. Every box is 3–4 bits, and each is just a small number once you extract it — the shift-then-mask move from lesson 2, seven times over.
+</div>
+
+<h2>4. The critical mindset: Rn and Rd are indices, not values</h2>
+<p>The most common beginner decoding bug, so read twice: the Rn field does <em>not</em> contain a number to compute with. It contains a <em>register number</em> — usually 0–15, small. The value lives in your registers array at that index. Same for Rd: you don't put the result <em>into</em> the field, you write it into the array slot the field points at. Decode gives you <em>where</em>; the registers array holds <em>what</em>.</p>
+
+<div class="eli5">
+The form doesn't say "add 47 and 12". It says "add <em>whatever is in desk slot 4</em> to 12, and file the answer into <em>desk slot 7</em>". The form only ever holds slot numbers and small attachments. If you catch yourself using an extracted field directly as a value when it's actually a register index — or vice versa — stop and re-ask: "is this box a <em>where</em> or a <em>what</em>?" This one habit prevents an entire category of emulator bugs.
+</div>
+
+<h2>5. operand2, immediate form only (I=1) — the weird rotate trick</h2>
+<p>When I=1, the low 12 bits split in two: the bottom 8 bits are a value, the top 4 are a rotate amount. The real operand = the 8-bit value rotated <strong>right</strong> by <em>twice</em> the rotate amount. So rotate=0 (the common case) means: the operand is just the 8-bit value.</p>
+
+<div class="eli5">
+Why so strange? Games constantly need constants like <code>0x00800000</code> (big, but one bit set). There's no room for 32 bits of constant in the instruction — most of the form is used by the other boxes. ARM's engineers noticed that useful constants are usually <em>small</em> or <em>small with zeros around them</em>. So: store 8 meaningful bits, plus a 4-bit dial for "where to place them" — like storing the digits "8" plus the instruction "shift left six zeros". You get a huge range of round 32-bit constants from 12 bits. The price: awkward constants (like <code>0x0F0F0F0F</code>) are simply <em>unrepresentable</em> — assemblers must build them in steps. Emulator consequence: implement the rotation exactly, because games rely on every representable value.<br><br>
+Why <em>right</em> rotation by <em>even</em> amounts only? Rotating right by 2r is the same as rotating left by 32−2r — so right-rotation with an even dial covers every even repositioning, and odd positions were deemed not worth a bit. You don't need to agree with the choice; you need to reproduce it faithfully.
+</div>
+
+<h2>6. The 16 opcodes — see the structure</h2>
+<p>Full table with semantics in the <a href="../reference/arm-data-processing.html">cheat sheet</a>. Structure first, so the table becomes predictable:</p>
+<ul>
+  <li><strong>0000–0111: compute-and-store.</strong> Bitwise (AND, EOR), subtraction family (SUB, RSB — "reverse subtract", operands swapped, for when the constant must come first), addition family (ADD, ADC "add with carry", SBC "subtract with carry", RSC). The carry variants exist so multi-precision math (64-bit numbers from two 32-bit halves) works: add the low halves, then ADC the high halves with the leftover carry.</li>
+  <li><strong>1000–1011: compare-only.</strong> TST, TEQ, CMP, CMN run the exact same math as their store cousins but throw the result away, keeping only the flags. They never write Rd. This is how "compare and branch" works on ARM: CMP sets flags, the next instruction's cond field reads them.</li>
+  <li><strong>1100–1111: more compute-and-store.</strong> ORR, then MOV (no first operand — Rd just gets operand2), BIC ("bit clear": AND with the inverted operand), MVN ("move negative/inverted": Rd gets the bitwise NOT of operand2).</li>
+</ul>
+<p>Also note: bit 21 (the low bit of the opcode field) acts as a <em>modifier</em> on the three before it — NOT-ing the operand (AND→BIC, MOV→MVN) or swapping the subtraction direction (SUB→RSB). And <strong>V is only touched by arithmetic</strong>; pure logical ops leave it alone (a logic result can't "overflow" — no sign involved).</p>
+
+<div class="eli5">
+Why does "compare-only" exist when SUB could set the same flags? Because SUB must also <em>store</em> its answer somewhere, and games compare constantly — you'd be forced to sacrifice a register every time. CMP is "do the subtraction, keep only the lesson, throw away the answer". Four dedicated instructions that exist purely to set flags cheaply: that's how central compare-then-branch is to real code.
+</div>
+
+<h2>7. Your objectives (no code — design decisions are yours)</h2>
+<ol>
+  <li><strong>Decode function.</strong> Somewhere in <code>internal/cpu</code>, write a function that takes a 32-bit instruction word and returns all seven fields. Decide yourself: a struct for the fields? Named return values? Extract each field with the shift-then-mask move from lesson 2, using the bit layout above.</li>
+  <li><strong>MOV first (opcode 1101), immediate form only</strong> (I=1, rotate=0 for now): if the condition passes, write the operand value into the register at index Rd. That's your first executing instruction.</li>
+  <li><strong>Wire a manual fetch.</strong> In <code>cmd/gba/main.go</code>, hand-assemble a MOV: build a 32-bit word with your chosen cond (use AL), group 00, I=1, opcode for MOV, S=0, Rd=4, operand2 value 42. Feed it through decode → condition → execute. Print your registers afterward.</li>
+  <li><strong>Prove S.</strong> Repeat with S=1 and operand 0 (should set Z) and a value with bit 31 set (should set N). If your flags don't respond, find out why before moving on.</li>
+  <li><strong>Then add MVN and BIC</strong> — they're MOV and AND with one inversion. Confirm MVN of 0 gives <code>0xFFFFFFFF</code>.</li>
+</ol>
+<p>Acceptance: r4 holds 42 after step 3; MOVS with 0 sets Z; MVN of 0 gives all-ones. If step 3's word looks intimidating, remember it's just seven small numbers OR-ed into their boxes — build it field by field, shifting each into place.</p>
+
+<h2>8. Check yourself</h2>
+<div class="quiz" data-quiz='[
+  {"q":"The Rn field of an instruction contains…","opts":["A register number","A register value","A memory address","An opcode number"],"a":0,"why":"Fields like Rn/Rd are indices into your registers array — the where, not the what."},
+  {"q":"What marks a data-processing instruction?","opts":["Bits 27-26 are 00","Bits 31-28 are 00","Bit 25 is one","Bit 20 is zero"],"a":0,"why":"The two group bits at 27-26 select the instruction family; 00 = data processing."},
+  {"q":"What does the S bit do?","opts":["Updates CPSR flags","Sign-extends operand","Skips the condition","Selects the opcode"],"a":0,"why":"S=1 means the instruction updates N/Z/C/V on completion — the assembly S suffix."},
+  {"q":"I=1 and rotate=0: the operand is…","opts":["The 8-bit value itself","The 8-bit value halved","Register 0 contents","Bits 7-0 shifted left"],"a":0,"why":"Rotate right by 2x0 = 0, so the operand is the raw 8-bit immediate."},
+  {"q":"Why can CMP exist without storing a result?","opts":["It sets flags only","It writes to memory","It clears the register","It doubles the value"],"a":0,"why":"Compare ops run the math and keep only the flag side effects — Rd is never written."},
+  {"q":"MOV and MVN differ how?","opts":["MVN inverts operand2","MVN negates Rn","MVN skips flags","MVN uses memory"],"a":0,"why":"MVN = bitwise NOT of operand2 into Rd; hence MVN of 0 gives all ones."},
+  {"q":"Which opcodes never write Rd?","opts":["TST TEQ CMP CMN","MOV MVN BIC ORR","ADD SUB AND EOR","ADC SBC RSB RSC"],"a":0,"why":"The 1000-1011 block are compare-only: flags yes, register no."}
+]'></div>
+
+<h2>9. Primary source</h2>
+<p><a href="https://problemkaputt.de/gbatek.htm#ARMDataProcessingAndMultiplyInstructions"><strong>GBATEK — Data Processing &amp; Multiply</strong></a>. After implementing MOV, read the flag-setting notes there ("Flag Settings" under each op class) and verify your S-bit behavior matches — especially that logical ops don't touch V. Cross-check your decode fields against the layout diagram at the top of the section.</p>
+
+<h2>Stuck?</h2>
+<p>Ask me — especially when: your extracted fields look like nonsense (almost always a shift/mask off-by-one — re-read §3's ELI5), MOV writes to the wrong register (Rn vs Rd confusion, §4), or the rotate trick produces weird values (§5). Next lesson: <em>the barrel shifter</em> — your README's third "wtf" — and with it the register form of operand2, unlocking ADD/SUB and real arithmetic.</p>
+
+<footer class="lesson-footer">
+  <span>Lesson 0003 · <a href="../reference/arm-data-processing.html">Reference: data-processing format</a> · <a href="0002-condition-codes.html">Lesson 2</a></span>
+  <span>Sources: <a href="https://problemkaputt.de/gbatek.htm">GBATEK</a> · <a href="https://developer.arm.com/documentation/ddi0210/i/">ARM7TDMI TRM</a></span>
+</footer>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

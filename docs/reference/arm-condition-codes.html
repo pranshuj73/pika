@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reference — ARM Condition Codes</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Reference · Cheat sheet</div>
+  <h1>ARM Condition Codes (cond field, bits 31–28)</h1>
+</header>
+
+<p>Source of truth: <a href="https://problemkaputt.de/gbatek.htm#ARMConditionCodes">GBATEK — ARM Condition Codes</a>. Every ARM instruction carries a 4-bit condition in its top bits; if the flags don't match, the instruction is skipped (the CPU still burns its cycle — matters for timing accuracy later).</p>
+
+<table>
+  <tr><th>cond</th><th>Suffix</th><th>Meaning</th><th>Flags checked</th></tr>
+  <tr><td>0000</td><td>EQ</td><td>equal</td><td>Z=1</td></tr>
+  <tr><td>0001</td><td>NE</td><td>not equal</td><td>Z=0</td></tr>
+  <tr><td>0010</td><td>CS/HS</td><td>unsigned ≥ (carry set)</td><td>C=1</td></tr>
+  <tr><td>0011</td><td>CC/LO</td><td>unsigned &lt; (carry clear)</td><td>C=0</td></tr>
+  <tr><td>0100</td><td>MI</td><td>negative / minus</td><td>N=1</td></tr>
+  <tr><td>0101</td><td>PL</td><td>positive or zero</td><td>N=0</td></tr>
+  <tr><td>0110</td><td>VS</td><td>signed overflow</td><td>V=1</td></tr>
+  <tr><td>0111</td><td>VC</td><td>no signed overflow</td><td>V=0</td></tr>
+  <tr><td>1000</td><td>HI</td><td>unsigned &gt;</td><td>C=1 and Z=0</td></tr>
+  <tr><td>1001</td><td>LS</td><td>unsigned ≤</td><td>C=0 or Z=1</td></tr>
+  <tr><td>1010</td><td>GE</td><td>signed ≥</td><td>N == V</td></tr>
+  <tr><td>1011</td><td>LT</td><td>signed &lt;</td><td>N != V</td></tr>
+  <tr><td>1100</td><td>GT</td><td>signed &gt;</td><td>Z=0 and N == V</td></tr>
+  <tr><td>1101</td><td>LE</td><td>signed ≤</td><td>Z=1 or N != V</td></tr>
+  <tr><td>1110</td><td>AL</td><td>always (default)</td><td>—</td></tr>
+  <tr><td>1111</td><td>—</td><td>never (reserved)</td><td>never executes</td></tr>
+</table>
+
+<h2>The patterns (memorize these, not the table)</h2>
+<ul>
+  <li><strong>Unsigned pairs use C and Z:</strong> "above/below" compares treat numbers as raw bits — HI = C&amp;~Z, LS = ~C|Z.</li>
+  <li><strong>Signed pairs use N and V:</strong> "greater/less" cares about sign — GE = N==V, GT adds Z=0.</li>
+  <li><strong>Odd/even cond inversion:</strong> cond XOR 1 flips the meaning (EQ↔NE, CS↔CC…). <code>cond &amp; 1 == 1</code> means "the negated form of cond-1".</li>
+</ul>
+
+<h2>Go: extracting the field + common implementation</h2>
+<pre><code>cond := uint8(instr &gt;&gt; 28)        // top 4 bits
+
+func (c CPSR) ConditionPassed(cond uint8) bool {
+    n, z, cF, v := c.Has(flagN), c.Has(flagZ), c.Has(flagC), c.Has(flagV)
+    switch cond {
+    case 0x0: return z
+    case 0x1: return !z
+    case 0x2: return cF
+    case 0x3: return !cF
+    case 0x4: return n
+    case 0x5: return !n
+    case 0x6: return v
+    case 0x7: return !v
+    case 0x8: return cF &amp;&amp; !z          // HI
+    case 0x9: return !cF || z           // LS
+    case 0xA: return n == v             // GE
+    case 0xB: return n != v             // LT
+    case 0xC: return !z &amp;&amp; n == v       // GT
+    case 0xD: return z || n != v        // LE
+    case 0xE: return true               // AL
+    default:  return false              // 0xF reserved
+    }
+}</code></pre>
+
+<footer class="lesson-footer">
+  <span>pika reference · ARM condition codes</span>
+  <span><a href="../lessons/0002-condition-codes.html">Lesson 2: Condition codes</a></span>
+</footer>
+</body>
+</html>

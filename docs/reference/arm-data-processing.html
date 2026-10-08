@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Reference — ARM Data-Processing Instructions</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="lesson-header">
+  <div class="kicker">Reference · Cheat sheet</div>
+  <h1>ARM Data-Processing Instructions (format + opcodes)</h1>
+</header>
+
+<p>Source of truth: <a href="https://problemkaputt.de/gbatek.htm#ARMDataProcessingAndMultiplyInstructions">GBATEK — data processing &amp; multiply</a>. Identified by bits 27–26 = <code>00</code>.</p>
+
+<h2>Bit layout (32-bit encoding)</h2>
+<pre><code> 31-28  27 26  25    24-21  20   19-16  15-12  11-0
+ ┌──────┬───────┬─────┬──────┬────┬──────┬──────┬──────────┐
+ │ cond │ 0  0  │ I   │ opcode│ S  │  Rn  │  Rd  │ operand2 │
+ └──────┴───────┴─────┴──────┴────┴──────┴──────┴──────────┘
+  cond     group  imm?  which  set   src    dst    what to
+  check    marker      op     flags? reg   reg    operate on</code></pre>
+<table>
+  <tr><th>Field</th><th>Bits</th><th>Meaning</th></tr>
+  <tr><td>cond</td><td>31–28</td><td>Condition (<a href="arm-condition-codes.html">table</a>)</td></tr>
+  <tr><td>group</td><td>27–26</td><td><code>00</code> = data processing</td></tr>
+  <tr><td>I</td><td>25</td><td>1 = operand2 is an <em>immediate</em>; 0 = a shifted register</td></tr>
+  <tr><td>opcode</td><td>24–21</td><td>Which operation (below)</td></tr>
+  <tr><td>S</td><td>20</td><td>1 = update CPSR flags (suffix <code>S</code>, e.g. <code>MOVS</code>)</td></tr>
+  <tr><td>Rn</td><td>19–16</td><td>First source register (unused for MOV/MVN — read as r0, value ignored)</td></tr>
+  <tr><td>Rd</td><td>15–12</td><td>Destination register</td></tr>
+  <tr><td>operand2</td><td>11–0</td><td>Immediate (8-bit value + 4-bit rotate) or register + shift</td></tr>
+</table>
+
+<h2>The 16 opcodes</h2>
+<table>
+  <tr><th>opcode</th><th>Name</th><th>Computes</th><th>Writes Rd?</th><th>With S: sets</th></tr>
+  <tr><td>0000</td><td>AND</td><td>Rd = Rn AND op2</td><td>yes</td><td>N Z C</td></tr>
+  <tr><td>0001</td><td>EOR</td><td>Rd = Rn XOR op2</td><td>yes</td><td>N Z C</td></tr>
+  <tr><td>0010</td><td>SUB</td><td>Rd = Rn − op2</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>0011</td><td>RSB</td><td>Rd = op2 − Rn</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>0100</td><td>ADD</td><td>Rd = Rn + op2</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>0101</td><td>ADC</td><td>Rd = Rn + op2 + carry</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>0110</td><td>SBC</td><td>Rd = Rn − op2 − (1−carry)</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>0111</td><td>RSC</td><td>Rd = op2 − Rn − (1−carry)</td><td>yes</td><td>N Z C V</td></tr>
+  <tr><td>1000</td><td>TST</td><td>flags = Rn AND op2</td><td><strong>no</strong></td><td>N Z C</td></tr>
+  <tr><td>1001</td><td>TEQ</td><td>flags = Rn XOR op2</td><td><strong>no</strong></td><td>N Z C</td></tr>
+  <tr><td>1010</td><td>CMP</td><td>flags = Rn − op2</td><td><strong>no</strong></td><td>N Z C V</td></tr>
+  <tr><td>1011</td><td>CMN</td><td>flags = Rn + op2</td><td><strong>no</strong></td><td>N Z C V</td></tr>
+  <tr><td>1100</td><td>ORR</td><td>Rd = Rn OR op2</td><td>yes</td><td>N Z C</td></tr>
+  <tr><td>1101</td><td>MOV</td><td>Rd = op2</td><td>yes</td><td>N Z C</td></tr>
+  <tr><td>1110</td><td>BIC</td><td>Rd = Rn AND NOT op2</td><td>yes</td><td>N Z C</td></tr>
+  <tr><td>1111</td><td>MVN</td><td>Rd = NOT op2</td><td>yes</td><td>N Z C</td></tr>
+</table>
+
+<h2>The immediate trick (I=1)</h2>
+<p>operand2's low 12 bits split into an 8-bit <em>value</em> (bits 7–0) and a 4-bit <em>rotate</em> (bits 11–8). The real operand is the value rotated <strong>right</strong> by <code>2 × rotate</code> bits. Why? A plain 8-bit constant can't express numbers like <code>0x00F00000</code> — but rotation reuses those 8 bits at any even position. Consequence: most 32-bit constants are <em>not</em> directly loadable; assemblers pick a representable rotated form or build them with multiple instructions.</p>
+<p>Rotate right of 0 means the operand is just the 8-bit value, zero-extended. Start there.</p>
+
+<h2>Patterns to remember</h2>
+<ul>
+  <li><strong>TST/TEQ/CMP/CMN never write Rd</strong> — they exist purely to set flags (that's why <code>CMP</code> + condition codes replaces x86's compare-and-jump fusion). If S=0 they would be useless; the encoding requires S=1 for them.</li>
+  <li><strong>MOV/MVN ignore Rn</strong> — there is no first operand; the field is a don't-care.</li>
+  <li><strong>The odd opcode bit (bit 21) is a modifier:</strong> 1 = bitwise NOT of op2 (AND→BIC, MOV→MVN) or a reversed subtraction (SUB→RSB).</li>
+  <li><strong>Logical ops (AND/EOR/ORR/BIC/MOV/MVN/TST/TEQ) don't set V</strong>; arithmetic ops (±, with carry) set all four. Logical ops set C from the barrel shifter (later lesson).</li>
+</ul>
+
+<footer class="lesson-footer">
+  <span>pika reference · ARM data-processing format</span>
+  <span><a href="../lessons/0003-data-processing.html">Lesson 3: data processing + MOV</a></span>
+</footer>
+</body>
+</html>
