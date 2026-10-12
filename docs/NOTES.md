@@ -12,3 +12,4 @@
 - Preference: NO code in lessons. Give plain-instruction objectives and explanations only; user writes all code themselves. (stated re lesson 3)
 - Preference: hints must be minimal — name the failing behavior/concept only, never hand over the fix line. User wants to derive fixes.
 - Project convention: tests live in tests/<pkg>/ as external _test packages mirroring internal/ structure.
+- Preference: dark mode everywhere — shared stylesheet + all docs use dark palette.

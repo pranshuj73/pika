@@ -1,13 +1,17 @@
-/* pika course — shared stylesheet */
+/* pika course — shared stylesheet (dark) */
 :root {
-  --ink: #1a1a1a;
-  --paper: #fffdf8;
-  --accent: #a02c2c;
-  --muted: #6b6b6b;
-  --rule: #d8d2c4;
-  --code-bg: #f4f1ea;
-  --ok: #2e7d32;
-  --bad: #b02a2a;
+  --ink: #e8e4da;
+  --paper: #14161b;
+  --accent: #e06c5f;
+  --muted: #9a958a;
+  --rule: #33363e;
+  --code-bg: #1d2027;
+  --ok: #7fc98a;
+  --bad: #e07070;
+  --eli5-bg: #182420;
+  --eli5-border: #2c4a3a;
+  --eli5-accent: #7fc98a;
+  --story-bg: #241f16;
   --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
   --mono: "SF Mono", "Fira Code", Consolas, "Liberation Mono", monospace;
@@ -34,6 +38,18 @@ table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92r
 th, td { border: 1px solid var(--rule); padding: 0.4rem 0.6rem; text-align: left; font-family: var(--sans); }
 th { background: var(--code-bg); }
 blockquote { border-left: 3px solid var(--rule); margin: 1.2rem 0; padding: 0.2rem 1.2rem; color: var(--muted); font-style: italic; }
-.mission-tie { background: #fdf6ec; border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1.2rem; font-size: 0.95rem; }
+.mission-tie { background: var(--story-bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1.2rem; font-size: 0.95rem; }
 .mission-tie::before { content: "◆ Mission tie-in — "; font-family: var(--sans); font-weight: 600; color: var(--accent); font-size: 0.85rem; }
+.eli5 {
+  background: var(--eli5-bg); border: 1px solid var(--eli5-border); border-radius: 6px;
+  padding: 0.8rem 1.2rem; margin: 0.8rem 0 1.4rem; font-size: 0.98rem;
+}
+.eli5::before {
+  content: "🧸 ELI5 — plain-English version";
+  display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem;
+  letter-spacing: 0.06em; color: var(--eli5-accent); margin-bottom: 0.3rem;
+}
+.story { background: var(--story-bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1.2rem; margin: 1rem 0; }
+.story::before { content: "🎮 Worked example — a game making a decision"; display: block; font-family: var(--sans); font-weight: 700; font-size: 0.8rem; color: var(--accent); margin-bottom: 0.3rem; }
 footer.lesson-footer { margin-top: 3.5rem; border-top: 2px solid var(--ink); padding-top: 1rem; font-family: var(--sans); font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+footer.lesson-footer a { color: var(--accent); }
