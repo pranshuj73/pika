@@ -78,15 +78,44 @@ Why <em>right</em> rotation by <em>even</em> amounts only? Rotating right by 2r 
 Why does "compare-only" exist when SUB could set the same flags? Because SUB must also <em>store</em> its answer somewhere, and games compare constantly — you'd be forced to sacrifice a register every time. CMP is "do the subtraction, keep only the lesson, throw away the answer". Four dedicated instructions that exist purely to set flags cheaply: that's how central compare-then-branch is to real code.
 </div>
 
-<h2>7. Your objectives (no code — design decisions are yours)</h2>
-<ol>
-  <li><strong>Decode function.</strong> Somewhere in <code>internal/cpu</code>, write a function that takes a 32-bit instruction word and returns all seven fields. Decide yourself: a struct for the fields? Named return values? Extract each field with the shift-then-mask move from lesson 2, using the bit layout above.</li>
-  <li><strong>MOV first (opcode 1101), immediate form only</strong> (I=1, rotate=0 for now): if the condition passes, write the operand value into the register at index Rd. That's your first executing instruction.</li>
-  <li><strong>Wire a manual fetch.</strong> In <code>cmd/gba/main.go</code>, hand-assemble a MOV: build a 32-bit word with your chosen cond (use AL), group 00, I=1, opcode for MOV, S=0, Rd=4, operand2 value 42. Feed it through decode → condition → execute. Print your registers afterward.</li>
-  <li><strong>Prove S.</strong> Repeat with S=1 and operand 0 (should set Z) and a value with bit 31 set (should set N). If your flags don't respond, find out why before moving on.</li>
-  <li><strong>Then add MVN and BIC</strong> — they're MOV and AND with one inversion. Confirm MVN of 0 gives <code>0xFFFFFFFF</code>.</li>
-</ol>
-<p>Acceptance: r4 holds 42 after step 3; MOVS with 0 sets Z; MVN of 0 gives all-ones. If step 3's word looks intimidating, remember it's just seven small numbers OR-ed into their boxes — build it field by field, shifting each into place.</p>
+<h2>7. Your objectives — guided skeleton</h2>
+<p>Below is the skeleton: types, function signatures, and TODO comments in plain English. <strong>Every line of logic is yours to write</strong> — the skeleton answers "what shape does this take and in what order do I think", never "what computation goes here". Field names and structure are suggestions; rename freely.</p>
+<h3>Step 1 — the decode type and function (in <code>arm_decoder.go</code>)</h3>
+<pre><code>// DPInstr is one data-processing instruction, split into its fields.
+type DPInstr struct {
+    Cond uint8   // TODO: bits 31-28 — a number 0-15
+    I    bool    // TODO: bit 25 — true when operand2 is an immediate
+    Op   uint8   // TODO: bits 24-21 — a number 0-15
+    S    bool    // TODO: bit 20
+    Rn   uint8   // TODO: bits 19-16 — register INDEX
+    Rd   uint8   // TODO: bits 15-12 — register INDEX
+    Imm  uint32  // TODO: when I=1, the rotated immediate value; 0 otherwise
+}
+
+// decodeDP splits a 32-bit ARM instruction word into DPInstr fields.
+// TODO: extract each field with the shift-then-mask move (lesson 2, §4):
+//       shift right by the field's LOW bit number, mask with as many 1s as the field is wide.
+// TODO: for the I bit and S bit, "field is 1 bit wide" — after shifting,
+//       compare against 1 to decide true/false.
+// TODO: when I is set, split the low 12 bits: bottom 8 = value, top 4 = rotate;
+//       the immediate is the value rotated RIGHT by (2 * rotate). Start with
+//       rotate=0 meaning "the value as-is" and add rotation once MOV works.
+func decodeDP(instr uint32) DPInstr</code></pre>
+<h3>Step 2 — execute MOV (in <code>arm.go</code>)</h3>
+<pre><code>// execDP executes one data-processing instruction against the CPU.
+// TODO: first, gate on the condition — you already have ConditionPassed.
+// TODO: switch on the opcode. Implement only MOV (0xD) for now:
+//       write the immediate into the register AT INDEX Rd (a where, not a what).
+// TODO: when S is set, update flags from the value you just wrote:
+//       N = bit 31 of the result, Z = result is zero. (C and V come later.)
+// TODO: leave a default case that panics or logs — unhandled opcodes must be LOUD,
+//       not silently ignored.
+func (c *CPU) execDP(dp DPInstr)</code></pre>
+<h3>Step 3 — manual fetch + prove it (in <code>cmd/gba/main.go</code>)</h3>
+<p>No skeleton for this one — it's five lines and a print, and writing it is the exercise: construct a 32-bit word for <code>MOV r4, #42</code> by OR-ing each field into its box (AL=0xE cond, group bits 00, I=1, opcode 0xD, S=0, Rd=4, operand 42), decode it, check the condition, execute, print <code>cpu.Registers</code>. Then two variations: S=1 with operand 0 (expect Z set) and operand with bit 31 set (expect N set).</p>
+<h3>Step 4 — MVN and BIC</h3>
+<p>Two new cases in your opcode switch. Hints only: MVN is "write the inverted immediate", BIC is "AND with the inverted operand" (it needs Rn — read it now). Confirm: MVN of 0 gives <code>0xFFFFFFFF</code> in Rd.</p>
+<p>Acceptance: r4 holds 42 after step 3; MOVS with 0 sets Z; MOVS with a bit-31 value sets N; MVN of 0 gives all-ones. When you're done, ask me for the validation test — same deal as lesson 2, I test, you fix.</p>
 
 <h2>8. Check yourself</h2>
 <div class="quiz" data-quiz='[

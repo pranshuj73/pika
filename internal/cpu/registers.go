@@ -11,7 +11,7 @@ const (
 	flagC    CPSR = 1 << 29
 	flagV    CPSR = 1 << 28
 	flagT    CPSR = 1 << 5
-	modeMosk        = 0x1F
+	modeMask        = 0x1F
 )
 
 func (c CPSR) Has(f CPSR) bool {
@@ -27,7 +27,7 @@ func (c *CPSR) Clear(f CPSR) {
 }
 
 func (c *CPSR) Mode() uint8 {
-	return uint8(*c & modeMosk)
+	return uint8(*c & modeMask)
 }
 
 func (c *CPSR) IsThumb() bool {

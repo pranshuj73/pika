@@ -13,3 +13,4 @@
 - Preference: hints must be minimal — name the failing behavior/concept only, never hand over the fix line. User wants to derive fixes.
 - Project convention: tests live in tests/<pkg>/ as external _test packages mirroring internal/ structure.
 - Preference: dark mode everywhere — shared stylesheet + all docs use dark palette.
+- Preference (supersedes earlier no-code rule): GUIDED SKELETON format. Teacher provides types, function signatures, and TODO comments in plain English; user writes all logic. Scope stays the same. User reports all three gap types (concepts/Go/structure) mix together — also lean on worked examples in chat when asked.
